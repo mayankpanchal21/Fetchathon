@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AgentOSTaskPlan",
+  "description": "Validated structured task plan for AgentOS desktop automation",
+  "type": "object",
+  "required": ["task_id", "user_request", "goal", "steps", "status", "created_at"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Unique identifier for the task"
+    },
+    "user_request": {
+      "type": "string",
+      "description": "Original user command or prompt"
+    },
+    "goal": {
+      "type": "string",
+      "description": "High level goal of the planned task"
+    },
+    "requires_approval": {
+      "type": "boolean",
+      "description": "Whether any step in the task requires user approval before execution"
+    },
+    "current_step_index": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Index of the currently executing or next step"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["planned", "waiting_approval", "running", "completed", "failed", "cancelled"],
+      "default": "planned"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step_id", "tool", "arguments", "requires_approval"],
+        "properties": {
+          "step_id": { "type": "integer" },
+          "tool": {
+            "type": "string",
+            "enum": [
+              "get_screen_info",
+              "take_screenshot",
+              "open_application",
+              "click",
+              "move_mouse",
+              "type_text",
+              "press_key",
+              "scroll",
+              "list_files",
+              "search_files",
+              "create_directory",
+              "read_text_file",
+              "write_text_file",
+              "browser_open",
+              "browser_navigate",
+              "browser_get_page_content",
+              "run_approved_command"
+            ]
+          },
+          "arguments": {
+            "type": "object"
+          },
+          "requires_approval": { "type": "boolean" },
+          "approval_reason": { "type": ["string", "null"] },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "waiting_approval", "running", "completed", "failed", "rejected", "skipped"],
+            "default": "pending"
+          },
+          "result": {},
+          "error": { "type": ["string", "null"] },
+          "verification_notes": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "verification_result": {
+      "type": "object",
+      "properties": {
+        "verified": { "type": "boolean" },
+        "message": { "type": "string" }
+      }
+    },
+    "error_details": { "type": ["string", "null"] }
+  }
+}

@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+agentos/.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / Frontend
+node_modules/
+agentos/apps/desktop-ui/node_modules/
+.npm
+dist/
+dist-ssr/
+*.local
+
+# Environment variables & secrets
+.env
+*.env
+*.pem
+*.key
+
+# SQLite database & local storage
+*.db
+*.sqlite3
+tasks.db
+recordings/
+screenshots/
+workspace/
+agentos/services/desktop-agent/tasks.db
+agentos/services/desktop-agent/workspace/
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
