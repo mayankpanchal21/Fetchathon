@@ -43,7 +43,11 @@ agent_kwargs = {
     "port": AGENT_PORT,
 }
 if AGENT_MAILBOX_KEY:
-    agent_kwargs["mailbox"] = f"{AGENT_MAILBOX_KEY}@https://agentverse.ai"
+    if AGENT_MAILBOX_KEY.lower() in ("true", "1", "yes"):
+        agent_kwargs["mailbox"] = True
+    else:
+        mb_val = AGENT_MAILBOX_KEY if "@" in AGENT_MAILBOX_KEY else f"{AGENT_MAILBOX_KEY}@https://agentverse.ai"
+        agent_kwargs["mailbox"] = mb_val
     agent_kwargs["publish_agent_details"] = True
 
 agent = Agent(**agent_kwargs)

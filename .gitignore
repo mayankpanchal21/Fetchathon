@@ -28,6 +28,8 @@ dist-ssr/
 *.env
 *.pem
 *.key
+private_keys.json
+agentos/private_keys.json
 
 # SQLite database & local storage
 *.db
