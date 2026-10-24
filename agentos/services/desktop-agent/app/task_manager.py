@@ -111,7 +111,7 @@ class TaskManager:
         elif tool == "take_screenshot":
             return take_screenshot(output_name=args.get("output_name"))
         elif tool == "open_application":
-            return open_application(app_name=args.get("app_name", ""))
+            return open_application(app_name=args.get("app_name", ""), url=args.get("url"))
         elif tool == "click":
             return click(x=int(args.get("x", 0)), y=int(args.get("y", 0)), button=args.get("button", "left"))
         elif tool == "move_mouse":

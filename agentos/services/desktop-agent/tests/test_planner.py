@@ -7,10 +7,10 @@ def test_deterministic_browser_planning():
     plan = create_task_plan("Open Chrome and visit example.com")
     assert isinstance(plan, TaskPlan)
     assert len(plan.steps) >= 2
-    assert plan.steps[0].tool == "browser_open"
+    assert plan.steps[0].tool == "open_application"
+    assert plan.steps[0].arguments["app_name"] == "Google Chrome"
     assert plan.steps[1].tool == "browser_navigate"
     assert "example.com" in plan.steps[1].arguments["url"]
-    assert plan.requires_approval is False
 
 
 def test_deterministic_folder_creation_planning():
@@ -18,7 +18,8 @@ def test_deterministic_folder_creation_planning():
     assert isinstance(plan, TaskPlan)
     assert len(plan.steps) >= 1
     assert plan.steps[0].tool == "create_directory"
-    assert plan.steps[0].arguments["path"] == "HackathonDemo"
+    assert plan.steps[0].arguments["path"] == "~/Documents/HackathonDemo"
+    assert plan.requires_approval is True
 
 
 def test_approval_propagation_in_planner():

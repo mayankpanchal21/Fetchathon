@@ -116,8 +116,9 @@ def _local_deterministic_plan(user_request: str) -> TaskPlan:
         target_url = url_match.group(0) if url_match else "https://example.com"
         if not target_url.startswith("http"):
             target_url = "https://" + target_url
-        goal = f"Open browser and navigate to {target_url}"
-        steps.append(TaskStepPlan(step_id=1, tool="browser_open", arguments={"url": target_url}))
+        goal = f"Open Chrome and navigate to {target_url}"
+        # Launches the real system Google Chrome / browser with target URL
+        steps.append(TaskStepPlan(step_id=1, tool="open_application", arguments={"app_name": "Google Chrome", "url": target_url}))
         steps.append(TaskStepPlan(step_id=2, tool="browser_navigate", arguments={"url": target_url}))
         steps.append(TaskStepPlan(step_id=3, tool="browser_get_page_content", arguments={}))
 
@@ -134,9 +135,20 @@ def _local_deterministic_plan(user_request: str) -> TaskPlan:
         if not name_match:
             name_match = re.search(r'(?:folder|directory)\s+([a-zA-Z0-9_-]+)', user_request, re.IGNORECASE)
         folder_name = name_match.group(1) if name_match else "HackathonDemo"
-        goal = f"Create directory '{folder_name}' in workspace"
-        steps.append(TaskStepPlan(step_id=1, tool="create_directory", arguments={"path": folder_name}))
-        steps.append(TaskStepPlan(step_id=2, tool="list_files", arguments={"directory": "."}))
+
+        # Check if user explicitly asked for Documents or Desktop on their laptop
+        if "document" in req_lower:
+            target_path = f"~/Documents/{folder_name}"
+            goal = f"Create directory '{folder_name}' in user Documents directory"
+        elif "desktop" in req_lower:
+            target_path = f"~/Desktop/{folder_name}"
+            goal = f"Create directory '{folder_name}' on user Desktop"
+        else:
+            target_path = folder_name
+            goal = f"Create directory '{folder_name}' in workspace"
+
+        steps.append(TaskStepPlan(step_id=1, tool="create_directory", arguments={"path": target_path}))
+        steps.append(TaskStepPlan(step_id=2, tool="list_files", arguments={"directory": target_path}))
 
     # 4. Open VS Code or inspect
     elif any(k in req_lower for k in ["vs code", "vscode", "code"]):

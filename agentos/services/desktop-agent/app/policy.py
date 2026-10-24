@@ -62,10 +62,18 @@ def validate_tool_name(tool_name: str) -> None:
         )
 
 
+ALLOWED_USER_ROOTS = [
+    Path.home() / "Documents",
+    Path.home() / "Desktop",
+    Path.home() / "Downloads",
+]
+
+
 def validate_workspace_path(path_str: str, allow_read_only_cwd: bool = False) -> Path:
     """
-    Enforces that filesystem paths resolve strictly within the configured workspace.
-    Prevents path traversal attacks (e.g. ../../etc/passwd or C:\\Windows).
+    Enforces that filesystem paths resolve within the configured workspace
+    or user-permitted personal folders (Documents, Desktop, Downloads).
+    Prevents path traversal to sensitive system directories (/etc, C:\\Windows, etc.).
     """
     if not path_str or not path_str.strip():
         raise PolicyViolation("Path argument cannot be empty.")
@@ -78,23 +86,34 @@ def validate_workspace_path(path_str: str, allow_read_only_cwd: bool = False) ->
 
     workspace = settings.allowed_workspace.resolve()
 
+    # 1. Allowed if inside configured workspace
     try:
-        # Check if target is inside workspace
         target.relative_to(workspace)
         return target
     except ValueError:
-        # If outside, check if allow_read_only_cwd is set and is under repo
-        if allow_read_only_cwd:
-            try:
-                from .config import MONOREPO_ROOT
-                target.relative_to(MONOREPO_ROOT.resolve())
-                return target
-            except ValueError:
-                pass
-        raise PolicyViolation(
-            f"Path '{path_str}' resolves to '{target}' which is outside the allowed sandbox: '{workspace}'. "
-            f"Filesystem access is restricted to the workspace."
-        )
+        pass
+
+    # 2. Allowed if inside project repository
+    if allow_read_only_cwd:
+        try:
+            from .config import MONOREPO_ROOT
+            target.relative_to(MONOREPO_ROOT.resolve())
+            return target
+        except ValueError:
+            pass
+
+    # 3. Allowed if inside user personal folders (Documents, Desktop, Downloads)
+    for user_root in ALLOWED_USER_ROOTS:
+        try:
+            target.relative_to(user_root.resolve())
+            return target
+        except ValueError:
+            pass
+
+    raise PolicyViolation(
+        f"Path '{path_str}' resolves to '{target}' which is outside the allowed sandbox. "
+        f"Filesystem access is restricted to the workspace and personal folders (Documents, Desktop)."
+    )
 
 
 def validate_screen_coordinates(x: int, y: int, max_w: int, max_h: int) -> None:
@@ -123,11 +142,14 @@ def check_step_approval_requirement(tool_name: str, arguments: Dict[str, Any]) -
         return True, f"Terminal command execution requested: template '{cmd_id}'"
 
     if tool_name == "create_directory":
-        # Safe if inside workspace, but flag if outside
         path_str = arguments.get("path", "")
         try:
-            validate_workspace_path(path_str)
-            return False, None
+            target = validate_workspace_path(path_str)
+            try:
+                target.relative_to(settings.allowed_workspace.resolve())
+                return False, None
+            except ValueError:
+                return True, f"Creating directory in user folder: '{target}'"
         except PolicyViolation:
             return True, f"Creating directory outside standard workspace: '{path_str}'"
 

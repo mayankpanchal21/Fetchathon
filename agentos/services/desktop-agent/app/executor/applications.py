@@ -1,7 +1,7 @@
 import shutil
 import logging
 import subprocess
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..config import get_detected_os
 
 logger = logging.getLogger("agentos.executor.applications")
@@ -33,7 +33,7 @@ APP_NAME_MAPPINGS_WIN = {
 }
 
 
-def open_application(app_name: str) -> Dict[str, Any]:
+def open_application(app_name: str, url: Optional[str] = None) -> Dict[str, Any]:
     if not app_name or not app_name.strip():
         raise ValueError("Application name cannot be empty.")
 
@@ -45,27 +45,36 @@ def open_application(app_name: str) -> Dict[str, Any]:
             normalized_name = APP_NAME_MAPPINGS_MAC.get(clean_name.lower(), clean_name)
             # Use macOS 'open -a' command
             cmd = ["open", "-a", normalized_name]
+            if url:
+                cmd.append(url)
             logger.info(f"Launching macOS app: {cmd}")
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             if proc.returncode != 0:
-                # If specific app name failed, try directly as bundle or fallback
+                # If specific app name failed, fallback to default handler
+                if url:
+                    subprocess.run(["open", url], check=False)
                 return {
                     "action": "open_application",
                     "app_name": clean_name,
+                    "url": url,
                     "status": "warning",
-                    "error": proc.stderr.strip() or f"Application '{normalized_name}' could not be opened. Verify installation.",
+                    "error": proc.stderr.strip() or f"Application '{normalized_name}' could not be opened. Fallback triggered.",
                     "platform": "macOS"
                 }
 
         elif os_info["is_windows"]:
             normalized_name = APP_NAME_MAPPINGS_WIN.get(clean_name.lower(), clean_name)
-            cmd = f'start "" "{normalized_name}"'
+            target = f'"{url}"' if url else ""
+            cmd = f'start "" "{normalized_name}" {target}'.strip()
             logger.info(f"Launching Windows app: {cmd}")
             proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
             if proc.returncode != 0:
+                if url:
+                    subprocess.run(f'start {url}', shell=True, check=False)
                 return {
                     "action": "open_application",
                     "app_name": clean_name,
+                    "url": url,
                     "status": "warning",
                     "error": proc.stderr.strip() or f"Application '{normalized_name}' could not be started.",
                     "platform": "Windows"
