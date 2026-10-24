@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 from typing import Dict, Any, Optional
@@ -22,9 +23,10 @@ class BrowserAutomation:
             self._playwright = await async_playwright().start()
 
         if not self._browser or not self._browser.is_connected():
-            # Launch chromium in headless mode by default for background reliability
+            # Visible headful mode by default so user sees browser on Mac & Windows laptop
+            headless_mode = os.getenv("BROWSER_HEADLESS", "false").strip().lower() in ("true", "1", "yes")
             self._browser = await self._playwright.chromium.launch(
-                headless=True,
+                headless=headless_mode,
                 args=["--no-sandbox", "--disable-setuid-sandbox"]
             )
             self._context = await self._browser.new_context(

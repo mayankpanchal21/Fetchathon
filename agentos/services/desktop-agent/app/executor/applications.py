@@ -10,26 +10,39 @@ logger = logging.getLogger("agentos.executor.applications")
 APP_NAME_MAPPINGS_MAC = {
     "chrome": "Google Chrome",
     "google chrome": "Google Chrome",
+    "browser": "Google Chrome",
+    "google": "Google Chrome",
     "safari": "Safari",
     "vscode": "Visual Studio Code",
     "vs code": "Visual Studio Code",
     "code": "Visual Studio Code",
+    "editor": "Visual Studio Code",
     "terminal": "Terminal",
     "finder": "Finder",
     "calculator": "Calculator",
+    "calc": "Calculator",
     "textedit": "TextEdit",
-    "notes": "Notes"
+    "notes": "Notes",
+    "settings": "System Settings",
+    "preferences": "System Settings"
 }
 
 APP_NAME_MAPPINGS_WIN = {
     "chrome": "chrome.exe",
     "google chrome": "chrome.exe",
+    "browser": "chrome.exe",
     "edge": "msedge.exe",
+    "msedge": "msedge.exe",
     "vscode": "code",
     "vs code": "code",
     "code": "code",
     "notepad": "notepad.exe",
-    "calculator": "calc.exe"
+    "editor": "notepad.exe",
+    "calculator": "calc.exe",
+    "calc": "calc.exe",
+    "terminal": "cmd.exe",
+    "cmd": "cmd.exe",
+    "powershell": "powershell.exe"
 }
 
 

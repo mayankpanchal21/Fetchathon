@@ -35,7 +35,7 @@ def test_asi1_model_router():
 
 def test_missing_api_key_error_handling():
     """Verify that calling complete without API key raises clear ModelConfigError with link."""
-    client = ASI1Client(api_key=None)
+    client = ASI1Client(api_key="")
     with pytest.raises(ModelConfigError) as exc_info:
         client.complete([{"role": "user", "content": "hi"}])
     assert "ASI1_API_KEY is not configured" in str(exc_info.value)

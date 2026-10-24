@@ -41,7 +41,10 @@ class ASI1Client:
         model: Optional[str] = None,
         base_url: Optional[str] = None
     ):
-        self.api_key = api_key or settings.asi1_api_key
+        if api_key is not None:
+            self.api_key = api_key.strip() or None
+        else:
+            self.api_key = settings.asi1_api_key
         self.base_url = base_url or settings.asi1_base_url or OFFICIAL_ASI1_BASE_URL
         raw_model = (model or settings.asi1_model or "asi1").strip().lower()
 

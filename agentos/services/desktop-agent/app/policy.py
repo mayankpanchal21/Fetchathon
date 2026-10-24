@@ -66,6 +66,7 @@ ALLOWED_USER_ROOTS = [
     Path.home() / "Documents",
     Path.home() / "Desktop",
     Path.home() / "Downloads",
+    Path.home(),
 ]
 
 
