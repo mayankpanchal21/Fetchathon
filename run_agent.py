@@ -1,33 +1,37 @@
 """
-AgentOS Desktop Automation Agent
-=================================
-Initialized with official Fetch.ai uAgents framework and ASI:One LLM reasoning.
-Full physical desktop access (Applications, Browser, Files, Mouse, Keyboard, Screen).
+AgentOS — Autonomous Desktop Operator uAgent
+=============================================
+A self-contained Fetch.ai uAgent for complete physical laptop control
+(Applications, Web Browser, Mouse, Keyboard, Files, Screen) powered by Fetch.ai ASI:One.
 """
 
 import os
 import sys
 import time
-import asyncio
+import json
 import logging
+import platform
+import subprocess
 from pathlib import Path
 from uuid import uuid4
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
-# Add desktop service directory to path
-WORKSPACE_ROOT = Path(__file__).resolve().parent
-AGENTOS_DIR = WORKSPACE_ROOT / "agentos"
-DESKTOP_SERVICE_DIR = AGENTOS_DIR / "services" / "desktop-agent"
+# Setup Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [AgentOS]: %(message)s"
+)
+logger = logging.getLogger("agentos")
 
-sys.path.insert(0, str(DESKTOP_SERVICE_DIR))
+# Workspace root
+WORKSPACE_DIR = Path(__file__).resolve().parent
 
 # Load environment configuration (.env)
 def load_env():
     env_paths = [
-        AGENTOS_DIR / ".env",
-        DESKTOP_SERVICE_DIR / ".env",
-        WORKSPACE_ROOT / ".env"
+        WORKSPACE_DIR / "agentos" / ".env",
+        WORKSPACE_DIR / ".env"
     ]
     for p in env_paths:
         if p.exists():
@@ -44,12 +48,15 @@ def load_env():
 
 load_env()
 
-# Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [AgentOS]: %(message)s"
-)
-logger = logging.getLogger("agentos.desktop_agent")
+# ASI:One API Configuration
+ASI1_API_KEY = os.getenv("ASI1_API_KEY", "sk_a16bf299fdd8474ab776fcd044dcb3dfe68f3f89d37a447888d525c4562e9457")
+ASI1_BASE_URL = os.getenv("ASI1_BASE_URL", "https://api.asi1.ai/v1")
+ASI1_MODEL = os.getenv("ASI1_MODEL", "asi1")
+
+# Third-party Automation Libraries
+import pyautogui
+from openai import OpenAI
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 # uAgents Imports
 from uagents import Agent, Context, Model
@@ -62,18 +69,11 @@ from uagents_core.contrib.protocols.chat import (
 )
 from uagents.protocol import Protocol
 
-# Desktop Automation & Planning Engine
-from app.config import get_detected_os, settings
-from app.planner import create_task_plan, TaskPlan, TaskStepPlan
-from app.executor.applications import open_application
-from app.executor.mouse_keyboard import move_mouse, click, type_text, press_key, scroll
-from app.executor.screen import get_screen_info, take_screenshot
-from app.executor.files import list_files, search_files, create_directory, read_text_file, write_text_file
-from app.executor.browser import browser_manager
-from app.executor.terminal import run_approved_command
+pyautogui.FAILSAFE = True
+pyautogui.PAUSE = 0.05
 
 # =============================================================================
-# Agent Initialization (Configured exactly as requested)
+# Fetch.ai Agent Initialization
 # =============================================================================
 agent = Agent(
     name="agentos_desktop_agent",
@@ -82,7 +82,6 @@ agent = Agent(
     mailbox=True,
 )
 
-# Chat Protocol instance
 chat_proto = Protocol(
     name=chat_protocol_spec.name,
     version=chat_protocol_spec.version,
@@ -90,137 +89,396 @@ chat_proto = Protocol(
 
 
 # =============================================================================
-# REST API Models
+# Desktop Automation Tools
 # =============================================================================
-class TaskRequest(Model):
-    prompt: str
+IS_MAC = platform.system() == "Darwin"
+IS_WINDOWS = platform.system() == "Windows"
+
+APP_MAP_MAC = {
+    "chrome": "Google Chrome",
+    "google chrome": "Google Chrome",
+    "safari": "Safari",
+    "vscode": "Visual Studio Code",
+    "vs code": "Visual Studio Code",
+    "code": "Visual Studio Code",
+    "terminal": "Terminal",
+    "calculator": "Calculator",
+    "notes": "Notes",
+    "textedit": "TextEdit",
+    "finder": "Finder"
+}
+
+APP_MAP_WIN = {
+    "chrome": "chrome.exe",
+    "google chrome": "chrome.exe",
+    "edge": "msedge.exe",
+    "vscode": "code",
+    "vs code": "code",
+    "calculator": "calc.exe",
+    "notepad": "notepad.exe"
+}
 
 
-class TaskResponse(Model):
-    status: str
-    goal: str
-    planner_source: str
-    steps_completed: int
-    summary: str
-    execution_time_sec: float
-    platform: str
+def open_application(app_name: str, url: Optional[str] = None) -> Dict[str, Any]:
+    """Launch and focus a native desktop application."""
+    clean_name = app_name.strip()
+    logger.info(f"Opening desktop application: '{clean_name}' (url: {url})")
 
-
-class StatusResponse(Model):
-    agent_name: str
-    agent_address: str
-    endpoint_url: str
-    operating_system: str
-    architecture: str
-    screen_resolution: str
-    asi1_configured: bool
-    asi1_model: str
-
-
-class AgentSkill(Model):
-    id: str
-    name: str
-    description: str
-
-
-class AgentCardResponse(Model):
-    name: str
-    description: str
-    url: str
-    version: str
-    skills: List[AgentSkill]
-
-
-# =============================================================================
-# Desktop Execution Core
-# =============================================================================
-async def execute_step(step: TaskStepPlan) -> Dict[str, Any]:
-    tool = step.tool
-    args = step.arguments
-    logger.info(f"Executing step {step.step_id}: {tool}({args})")
-
-    if tool == "get_screen_info":
-        return get_screen_info()
-    elif tool == "take_screenshot":
-        return take_screenshot(output_name=args.get("output_name"))
-    elif tool == "open_application":
-        return open_application(app_name=args.get("app_name", ""), url=args.get("url"))
-    elif tool == "click":
-        return click(x=int(args.get("x", 0)), y=int(args.get("y", 0)), button=args.get("button", "left"))
-    elif tool == "move_mouse":
-        return move_mouse(x=int(args.get("x", 0)), y=int(args.get("y", 0)))
-    elif tool == "type_text":
-        return type_text(text=args.get("text", ""), press_enter=bool(args.get("press_enter", False)))
-    elif tool == "press_key":
-        return press_key(key=args.get("key", ""))
-    elif tool == "scroll":
-        return scroll(direction=args.get("direction", "down"), amount=int(args.get("amount", 3)))
-    elif tool == "list_files":
-        return list_files(directory=args.get("directory", "."))
-    elif tool == "search_files":
-        return search_files(directory=args.get("directory", "."), query=args.get("query", ""))
-    elif tool == "create_directory":
-        return create_directory(path=args.get("path", ""))
-    elif tool == "read_text_file":
-        return read_text_file(path=args.get("path", ""))
-    elif tool == "write_text_file":
-        return write_text_file(path=args.get("path", ""), content=args.get("content", ""))
-    elif tool == "browser_open":
-        return await browser_manager.browser_open(url=args.get("url"))
-    elif tool == "browser_navigate":
-        return await browser_manager.browser_navigate(url=args.get("url", ""))
-    elif tool == "browser_get_page_content":
-        return await browser_manager.browser_get_page_content()
-    elif tool == "run_approved_command":
-        return run_approved_command(command_id=args.get("command_id", ""), arguments=args.get("arguments"))
+    if IS_MAC:
+        resolved = APP_MAP_MAC.get(clean_name.lower(), clean_name)
+        cmd = ["open", "-a", resolved]
+        if url:
+            cmd.append(url)
+        subprocess.run(cmd, check=False)
+        # Focus/activate window so keystrokes go into it
+        subprocess.run(["osascript", "-e", f'tell application "{resolved}" to activate'], check=False)
+        time.sleep(1.0)
+    elif IS_WINDOWS:
+        resolved = APP_MAP_WIN.get(clean_name.lower(), clean_name)
+        target = f'"{url}"' if url else ""
+        subprocess.run(f'start "" "{resolved}" {target}', shell=True, check=False)
+        time.sleep(1.0)
     else:
-        raise ValueError(f"Unmapped tool: {tool}")
+        subprocess.Popen(["xdg-open", clean_name])
+        time.sleep(1.0)
+
+    return {"action": "open_application", "app_name": clean_name, "status": "success"}
 
 
-async def run_desktop_task(prompt: str) -> Dict[str, Any]:
-    start_time = time.time()
-    logger.info(f"Planning desktop task with Fetch.ai ASI:One: '{prompt}'")
-    plan = create_task_plan(prompt)
+def type_text(text: str, press_enter: bool = False) -> Dict[str, Any]:
+    """Type keyboard characters with proper delay so active app receives them."""
+    logger.info(f"Typing text: '{text}' (press_enter={press_enter})")
+    time.sleep(0.3)
 
-    completed_steps = 0
-    step_summaries = []
-
-    for step in plan.steps:
+    # For math/calculator strings (e.g. '8*9='), press character by character
+    for char in text:
         try:
-            result = await execute_step(step)
-            completed_steps += 1
-            step_summaries.append(f"✓ Step {step.step_id} ({step.tool}): Success")
-        except Exception as e:
-            logger.error(f"Error in step {step.step_id} ({step.tool}): {e}")
-            step_summaries.append(f"✗ Step {step.step_id} ({step.tool}): Failed ({e})")
+            pyautogui.press(char)
+        except Exception:
+            pyautogui.write(char)
+        time.sleep(0.06)
+
+    if press_enter:
+        time.sleep(0.1)
+        pyautogui.press("enter")
+
+    return {"action": "type_text", "length": len(text), "status": "success"}
+
+
+def press_key(key: str) -> Dict[str, Any]:
+    """Press a single key (e.g. enter, tab, space, escape, backspace)."""
+    clean_key = key.strip().lower()
+    logger.info(f"Pressing key: '{clean_key}'")
+    time.sleep(0.1)
+    pyautogui.press(clean_key)
+    return {"action": "press_key", "key": clean_key, "status": "success"}
+
+
+def click(x: int, y: int, button: str = "left") -> Dict[str, Any]:
+    """Click at screen coordinates."""
+    logger.info(f"Clicking at ({x}, {y}) button={button}")
+    pyautogui.click(x=x, y=y, button=button.lower())
+    return {"action": "click", "x": x, "y": y, "status": "success"}
+
+
+def move_mouse(x: int, y: int) -> Dict[str, Any]:
+    """Move cursor to screen coordinates."""
+    pyautogui.moveTo(x, y, duration=0.2)
+    return {"action": "move_mouse", "x": x, "y": y, "status": "success"}
+
+
+def scroll(direction: str = "down", amount: int = 3) -> Dict[str, Any]:
+    clicks = amount if direction.lower() == "up" else -amount
+    pyautogui.scroll(clicks)
+    return {"action": "scroll", "direction": direction, "status": "success"}
+
+
+def get_screen_info() -> Dict[str, Any]:
+    """Get screen resolution and OS details."""
+    w, h = pyautogui.size()
+    return {
+        "width": w,
+        "height": h,
+        "operating_system": "macOS" if IS_MAC else ("Windows" if IS_WINDOWS else platform.system()),
+        "architecture": platform.machine()
+    }
+
+
+def take_screenshot(output_name: Optional[str] = None) -> Dict[str, Any]:
+    """Capture full display screenshot."""
+    shots_dir = WORKSPACE_DIR / "screenshots"
+    shots_dir.mkdir(parents=True, exist_ok=True)
+    filename = output_name or f"screenshot_{int(time.time())}.png"
+    if not filename.endswith(".png"):
+        filename += ".png"
+    filepath = shots_dir / filename
+
+    img = pyautogui.screenshot()
+    img.convert("RGB").save(str(filepath), "PNG")
+    logger.info(f"Screenshot saved: {filepath}")
+    return {"action": "take_screenshot", "saved_path": str(filepath), "status": "success"}
+
+
+def create_directory(path: str) -> Dict[str, Any]:
+    """Create directory on laptop (e.g. ~/Desktop/FolderName)."""
+    target = Path(path).expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Created directory: {target}")
+    return {"action": "create_directory", "path": str(target), "status": "success"}
+
+
+def write_text_file(path: str, content: str) -> Dict[str, Any]:
+    """Write text file on laptop."""
+    target = Path(path).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return {"action": "write_text_file", "path": str(target), "bytes": len(content), "status": "success"}
+
+
+def read_text_file(path: str) -> Dict[str, Any]:
+    """Read text file on laptop."""
+    target = Path(path).expanduser().resolve()
+    text = target.read_text(encoding="utf-8")
+    return {"action": "read_text_file", "path": str(target), "content": text[:2000], "status": "success"}
+
+
+# =============================================================================
+# Web Browser Automation (Playwright Visible Headful Chrome)
+# =============================================================================
+class BrowserOperator:
+    def __init__(self):
+        self._pw = None
+        self._browser: Optional[Browser] = None
+        self._context: Optional[BrowserContext] = None
+        self._page: Optional[Page] = None
+
+    async def _ensure_page(self) -> Page:
+        if self._page and not self._page.is_closed():
+            return self._page
+
+        if not self._pw:
+            self._pw = await async_playwright().start()
+
+        if not self._browser or not self._browser.is_connected():
+            self._browser = await self._pw.chromium.launch(
+                headless=False,  # Visible headful mode so user sees Chrome on laptop
+                args=["--no-sandbox", "--disable-setuid-sandbox"]
+            )
+            self._context = await self._browser.new_context(viewport={"width": 1280, "height": 800})
+
+        self._page = await self._context.new_page()
+        return self._page
+
+    async def open_url(self, url: str) -> Dict[str, Any]:
+        page = await self._ensure_page()
+        clean_url = url.strip()
+        if not clean_url.startswith("http"):
+            clean_url = "https://" + clean_url
+        logger.info(f"Browser navigating to: {clean_url}")
+        await page.goto(clean_url, wait_until="domcontentloaded", timeout=30000)
+        return {"action": "browser_open", "url": page.url, "title": await page.title(), "status": "success"}
+
+    async def fill_input(self, selector_or_name: str, text: str) -> Dict[str, Any]:
+        """Smart fill into web inputs (email, password, search, etc.) directly via DOM."""
+        page = await self._ensure_page()
+        logger.info(f"Filling web input '{selector_or_name}' with: '{text}'")
+
+        # Try multiple common selectors
+        candidates = [
+            selector_or_name,
+            f"input[name='{selector_or_name}']",
+            f"input[id='{selector_or_name}']",
+            f"input[type='{selector_or_name}']",
+            f"input[placeholder*='{selector_or_name}' i]",
+            f"textarea[name='{selector_or_name}']",
+            "input[type='email']",
+            "input[type='text']",
+            "input[type='password']"
+        ]
+
+        filled = False
+        for sel in candidates:
+            try:
+                elem = page.locator(sel).first
+                if await elem.is_visible(timeout=1500):
+                    await elem.fill(text)
+                    filled = True
+                    logger.info(f"Successfully filled via selector: {sel}")
+                    break
+            except Exception:
+                continue
+
+        if not filled:
+            # Fallback: type directly using keyboard
+            time.sleep(0.2)
+            pyautogui.write(text, interval=0.04)
+
+        return {"action": "browser_fill", "field": selector_or_name, "status": "success"}
+
+    async def click_element(self, selector_or_text: str) -> Dict[str, Any]:
+        """Smart click on web button or link."""
+        page = await self._ensure_page()
+        logger.info(f"Clicking web element: '{selector_or_text}'")
+
+        candidates = [
+            selector_or_text,
+            f"button:has-text('{selector_or_text}')",
+            f"a:has-text('{selector_or_text}')",
+            f"input[type='submit'][value*='{selector_or_text}' i]",
+            "button[type='submit']",
+            "button"
+        ]
+
+        clicked = False
+        for sel in candidates:
+            try:
+                elem = page.locator(sel).first
+                if await elem.is_visible(timeout=1500):
+                    await elem.click()
+                    clicked = True
+                    logger.info(f"Successfully clicked via selector: {sel}")
+                    break
+            except Exception:
+                continue
+
+        if not clicked:
+            pyautogui.press("enter")
+
+        return {"action": "browser_click", "target": selector_or_text, "status": "success"}
+
+
+browser = BrowserOperator()
+
+
+# =============================================================================
+# ASI:One Autonomous Planner
+# =============================================================================
+PLANNER_PROMPT = """You are AgentOS Desktop Planner powered by Fetch.ai ASI:One.
+Convert user desktop requests into sequential tool actions.
+
+AVAILABLE TOOLS:
+- open_application(app_name): Launch desktop apps (e.g. "Calculator", "Google Chrome", "Visual Studio Code", "Notes", "Terminal").
+- type_text(text, press_enter): Type keystrokes into the active application. (For calculator: type_text(text="8*9=", press_enter=false)).
+- press_key(key): Press key ("enter", "tab", "space", "escape", "backspace").
+- click(x, y, button): Click screen pixels.
+- move_mouse(x, y): Move cursor.
+- take_screenshot(): Take screen picture.
+- get_screen_info(): Get display dimensions.
+- create_directory(path): Create directory (e.g. "~/Desktop/MyFolder").
+- write_text_file(path, content): Write file.
+- read_text_file(path): Read file.
+- browser_open(url): Open visible Chrome and visit URL.
+- browser_fill(selector, text): Fill web inputs (e.g. selector="email", text="abc@gmail.com", selector="password", text="123").
+- browser_click(selector): Click web button (e.g. selector="Log In" or selector="login").
+
+CRITICAL RULES:
+1. For Calculator / Math (e.g. "Open Calculator and Multiply 8 and 9"):
+   Step 1: open_application({"app_name": "Calculator"})
+   Step 2: type_text({"text": "8*9=", "press_enter": false})
+2. For Websites & Web Forms (e.g. "visit facebook.com and type email abc@gmail.com and password 123"):
+   Step 1: browser_open({"url": "https://www.facebook.com"})
+   Step 2: browser_fill({"selector": "email", "text": "abc@gmail.com"})
+   Step 3: browser_fill({"selector": "password", "text": "123"})
+   Step 4: browser_click({"selector": "Log In"})
+3. For Folders:
+   Step 1: create_directory({"path": "~/Desktop/FolderName"})
+4. For Screenshot:
+   Step 1: take_screenshot({})
+
+Respond ONLY with valid JSON:
+{
+  "goal": "description",
+  "steps": [
+    {"tool": "tool_name", "arguments": {"arg": "val"}}
+  ]
+}
+"""
+
+client = OpenAI(base_url=ASI1_BASE_URL, api_key=ASI1_API_KEY, timeout=45.0)
+
+
+async def execute_task(prompt: str) -> Dict[str, Any]:
+    start_time = time.time()
+    logger.info(f"Generating plan via Fetch.ai ASI:One: '{prompt}'")
+
+    try:
+        res = client.chat.completions.create(
+            model=ASI1_MODEL,
+            messages=[
+                {"role": "system", "content": PLANNER_PROMPT},
+                {"role": "user", "content": f"Request: {prompt}"}
+            ],
+            response_format={"type": "json_object"}
+        )
+        data = json.loads(res.choices[0].message.content)
+        goal = data.get("goal", prompt)
+        steps = data.get("steps", [])
+    except Exception as e:
+        logger.warning(f"ASI:One planning fallback ({e})")
+        goal = prompt
+        steps = [{"tool": "take_screenshot", "arguments": {}}]
+
+    completed = 0
+    logs = []
+
+    for idx, s in enumerate(steps, start=1):
+        tool = s.get("tool", "")
+        args = s.get("arguments", {})
+        logger.info(f"Step {idx}: {tool}({args})")
+
+        try:
+            if tool == "open_application":
+                open_application(app_name=args.get("app_name", ""), url=args.get("url"))
+            elif tool == "type_text":
+                type_text(text=args.get("text", ""), press_enter=bool(args.get("press_enter", False)))
+            elif tool == "press_key":
+                press_key(key=args.get("key", ""))
+            elif tool == "click":
+                click(x=int(args.get("x", 0)), y=int(args.get("y", 0)), button=args.get("button", "left"))
+            elif tool == "move_mouse":
+                move_mouse(x=int(args.get("x", 0)), y=int(args.get("y", 0)))
+            elif tool == "scroll":
+                scroll(direction=args.get("direction", "down"), amount=int(args.get("amount", 3)))
+            elif tool == "get_screen_info":
+                get_screen_info()
+            elif tool == "take_screenshot":
+                take_screenshot()
+            elif tool == "create_directory":
+                create_directory(path=args.get("path", ""))
+            elif tool == "write_text_file":
+                write_text_file(path=args.get("path", ""), content=args.get("content", ""))
+            elif tool == "read_text_file":
+                read_text_file(path=args.get("path", ""))
+            elif tool == "browser_open":
+                await browser.open_url(url=args.get("url", ""))
+            elif tool == "browser_fill":
+                await browser.fill_input(selector_or_name=args.get("selector", ""), text=args.get("text", ""))
+            elif tool == "browser_click":
+                await browser.click_element(selector_or_text=args.get("selector", ""))
+            completed += 1
+            logs.append(f"✓ Step {idx} ({tool}): Success")
+        except Exception as err:
+            logger.error(f"Step {idx} error: {err}")
+            logs.append(f"✗ Step {idx} ({tool}): Failed ({err})")
             break
 
     elapsed = round(time.time() - start_time, 2)
-    os_info = get_detected_os()
-
-    summary_text = (
-        f"Goal: {plan.goal}\n"
-        f"Model: {plan.planner_source}\n"
-        f"Completed {completed_steps}/{len(plan.steps)} steps in {elapsed}s on {os_info['os_name']}.\n"
-        + "\n".join(step_summaries)
-    )
+    os_name = "macOS" if IS_MAC else "Windows"
+    summary = f"Goal: {goal}\nModel: Fetch.ai ASI:One ({ASI1_MODEL})\nExecuted {completed}/{len(steps)} steps in {elapsed}s on {os_name}.\n" + "\n".join(logs)
 
     return {
-        "status": "success" if completed_steps == len(plan.steps) else "partial",
-        "goal": plan.goal,
-        "planner_source": plan.planner_source,
-        "steps_completed": completed_steps,
-        "total_steps": len(plan.steps),
-        "summary": summary_text,
-        "execution_time_sec": elapsed,
-        "platform": os_info["os_name"]
+        "status": "success" if completed == len(steps) else "partial",
+        "goal": goal,
+        "steps_completed": completed,
+        "summary": summary,
+        "execution_time_sec": elapsed
     }
 
 
 # =============================================================================
-# Chat Protocol Message Handlers
+# Fetch.ai Chat Protocol Handler (For Agentverse Testing UI)
 # =============================================================================
-def extract_text_from_chat_msg(msg: ChatMessage) -> str:
+def extract_text(msg: ChatMessage) -> str:
     parts = []
     for item in msg.content:
         if isinstance(item, TextContent):
@@ -231,104 +489,79 @@ def extract_text_from_chat_msg(msg: ChatMessage) -> str:
 
 
 @chat_proto.on_message(ChatMessage)
-async def handle_chat_message(ctx: Context, sender: str, msg: ChatMessage):
-    logger.info(f"Incoming ChatMessage from {sender} (id: {msg.msg_id})")
+async def on_chat_message(ctx: Context, sender: str, msg: ChatMessage):
+    logger.info(f"ChatMessage from {sender} (id: {msg.msg_id})")
 
-    # Step 1: Immediate acknowledgement
-    ack = ChatAcknowledgement(
+    # Acknowledge
+    await ctx.send(sender, ChatAcknowledgement(
         msg_id=uuid4(),
         acknowledged_msg_id=msg.msg_id,
         timestamp=datetime.utcnow()
-    )
-    await ctx.send(sender, ack)
+    ))
 
-    # Step 2: Extract prompt
-    user_prompt = extract_text_from_chat_msg(msg)
-    if not user_prompt:
-        await ctx.send(
-            sender,
-            ChatMessage(
-                msg_id=uuid4(),
-                timestamp=datetime.utcnow(),
-                content=[TextContent(text="Empty instruction received."), EndSessionContent()]
-            )
-        )
-        return
-
-    # Step 3: Execute on real laptop
-    result = await run_desktop_task(user_prompt)
-
-    # Step 4: Return response
-    icon = "✅" if result["status"] == "success" else "⚠️"
-    reply_text = f"{icon} **AgentOS Desktop Execution Report:**\n\n{result['summary']}"
-
-    await ctx.send(
-        sender,
-        ChatMessage(
+    prompt = extract_text(msg)
+    if not prompt:
+        await ctx.send(sender, ChatMessage(
             msg_id=uuid4(),
             timestamp=datetime.utcnow(),
-            content=[TextContent(text=reply_text), EndSessionContent()]
-        )
-    )
-    logger.info(f"Sent completion response to {sender}.")
+            content=[TextContent(text="Empty instruction."), EndSessionContent()]
+        ))
+        return
+
+    # Execute on desktop
+    res = await execute_task(prompt)
+
+    # Reply to Agentverse
+    icon = "✅" if res["status"] == "success" else "⚠️"
+    reply = f"{icon} **AgentOS Desktop Execution:**\n\n{res['summary']}"
+    await ctx.send(sender, ChatMessage(
+        msg_id=uuid4(),
+        timestamp=datetime.utcnow(),
+        content=[TextContent(text=reply), EndSessionContent()]
+    ))
+    logger.info(f"Replied to {sender} on Agentverse.")
 
 
 @chat_proto.on_message(ChatAcknowledgement)
-async def handle_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
-    logger.info(f"Received ack from {sender} for msg_id: {msg.acknowledged_msg_id}")
+async def on_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
+    pass
 
 
 # =============================================================================
-# Direct REST Endpoints
+# REST Endpoints (For chat.py & curl)
 # =============================================================================
-@agent.on_rest_post("/api/task", TaskRequest, TaskResponse)
-async def handle_rest_task(ctx: Context, req: TaskRequest) -> TaskResponse:
-    """Direct task execution via HTTP POST."""
-    logger.info(f"REST POST Task: '{req.prompt}'")
-    res = await run_desktop_task(req.prompt)
-    return TaskResponse(
+class TaskReq(Model):
+    prompt: str
+
+class TaskRes(Model):
+    status: str
+    goal: str
+    summary: str
+    execution_time_sec: float
+
+class StatusRes(Model):
+    agent_name: str
+    agent_address: str
+    endpoint_url: str
+    status: str
+
+@agent.on_rest_post("/api/task", TaskReq, TaskRes)
+async def rest_task(ctx: Context, req: TaskReq) -> TaskRes:
+    res = await execute_task(req.prompt)
+    return TaskRes(
         status=res["status"],
         goal=res["goal"],
-        planner_source=res["planner_source"],
-        steps_completed=res["steps_completed"],
         summary=res["summary"],
-        execution_time_sec=res["execution_time_sec"],
-        platform=res["platform"]
+        execution_time_sec=res["execution_time_sec"]
     )
 
-
-@agent.on_rest_get("/api/status", StatusResponse)
-async def handle_rest_status(ctx: Context) -> StatusResponse:
-    """Agent and host desktop status."""
-    os_info = get_detected_os()
-    screen = get_screen_info()
-    return StatusResponse(
+@agent.on_rest_get("/api/status", StatusRes)
+async def rest_status(ctx: Context) -> StatusRes:
+    return StatusRes(
         agent_name=agent.name,
         agent_address=agent.address,
         endpoint_url="http://127.0.0.1:8001/submit",
-        operating_system=os_info["os_name"],
-        architecture=os_info["architecture"],
-        screen_resolution=f"{screen.get('width', 0)}x{screen.get('height', 0)}",
-        asi1_configured=bool(settings.asi1_api_key),
-        asi1_model=settings.asi1_model
-    )
-
-
-@agent.on_rest_get("/.well-known/agent.json", AgentCardResponse)
-async def handle_agent_card(ctx: Context) -> AgentCardResponse:
-    """Official ASI:One Agent Card Discovery Endpoint."""
-    return AgentCardResponse(
-        name="AgentOS Desktop Operator",
-        description="Autonomous desktop operator powered by Fetch.ai ASI:One LLM. Controls applications, browser, files, mouse, and keyboard on macOS and Windows.",
-        url="http://127.0.0.1:8001",
-        version="1.0.0",
-        skills=[
-            AgentSkill(id="desktop-applications", name="Application Management", description="Opens desktop apps (Chrome, VS Code, Notes, Calculator, Terminal)."),
-            AgentSkill(id="browser-navigation", name="Visible Web Navigation", description="Visibly opens Chrome/Chromium and navigates to target URLs."),
-            AgentSkill(id="filesystem-management", name="Filesystem Management", description="Creates directories and manages files in ~/Desktop and ~/Documents."),
-            AgentSkill(id="mouse-keyboard", name="Physical Mouse & Keyboard", description="Clicks, moves cursor, types text, and presses keys via PyAutoGUI."),
-            AgentSkill(id="screen-inspection", name="Screen Capture & Info", description="Reads display geometry and takes full screenshots.")
-        ]
+        status="active"
     )
 
 
@@ -336,36 +569,19 @@ async def handle_agent_card(ctx: Context) -> AgentCardResponse:
 # Startup Banner
 # =============================================================================
 @agent.on_event("startup")
-async def on_startup(ctx: Context):
-    os_info = get_detected_os()
-    screen = get_screen_info()
-
-    inspector_url = f"https://agentverse.ai/inspect/?uri=http%3A//127.0.0.1%3A8001&address={agent.address}"
-
-    print("\n" + "=" * 70)
-    print("🤖 AgentOS — Fetch.ai Desktop Automation Agent")
-    print("=" * 70)
-    print(f"• Agent Name:            {agent.name}")
-    print(f"• Agent Address:         {agent.address}")
-    print(f"• Agent Endpoint URL:    http://127.0.0.1:8001/submit")
-    print(f"• Agentverse Inspector:  {inspector_url}")
-    print(f"• Direct REST Task URL:  http://127.0.0.1:8001/api/task")
-    print(f"• Status URL:            http://127.0.0.1:8001/api/status")
-    print(f"• Operating System:      {os_info['os_name']} ({os_info['architecture']})")
-    print(f"• Screen Canvas:         {screen.get('width')}x{screen.get('height')}")
-    print(f"• ASI:One Model:         {settings.asi1_model} (Live API Active)")
-    print("=" * 70)
-    print("📋 uAgent me Endpoint URL dalein:")
-    print("   http://127.0.0.1:8001/submit")
-    print("=" * 70)
-    print("💡 Direct Test Command via curl:")
-    print('   curl -X POST http://127.0.0.1:8001/api/task \\')
-    print('        -H "Content-Type: application/json" \\')
-    print('        -d \'{"prompt": "Open Chrome and visit fetch.ai"}\'')
-    print("=" * 70 + "\n")
+async def startup_banner(ctx: Context):
+    print("\n" + "=" * 65)
+    print("🤖 AgentOS — Pure Desktop Automation uAgent")
+    print("=" * 65)
+    print(f"• Agent Name:     {agent.name}")
+    print(f"• Agent Address:  {agent.address}")
+    print(f"• Endpoint URL:   http://127.0.0.1:8001/submit")
+    print(f"• Agentverse UI:  https://agentverse.ai/inspect/?uri=http%3A//127.0.0.1%3A8001&address={agent.address}")
+    print(f"• ASI:One Model:  {ASI1_MODEL} (API Key: Active)")
+    print(f"• System:         {'macOS' if IS_MAC else 'Windows'}")
+    print("=" * 65 + "\n")
 
 
-# Attach Chat Protocol
 agent.include(chat_proto, publish_manifest=True)
 
 

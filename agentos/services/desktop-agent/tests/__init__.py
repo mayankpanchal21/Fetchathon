@@ -1,1 +1,0 @@
-# Desktop agent tests
