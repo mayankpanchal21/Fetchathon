@@ -36,13 +36,13 @@ logger = logging.getLogger("agentos.agentverse_hosted")
 # Replace with your local laptop desktop agent address if running with a custom seed
 LOCAL_DESKTOP_AGENT_ADDRESS = os.getenv(
     "DESKTOP_AGENT_ADDRESS",
-    "agent1q06yqptvth3vc3wcfdrnl6p256ucrfsstx2arrq6gmrc2y7spdnw5twcjeg"
+    "agent1qdd6eqp3dugy00kmx8hsy8dfsng8jzr7lc4ecl55nzu6xesc4h5gcpjkcxg"
 )
 
 # Fetch.ai ASI:One API Configuration
 ASI1_API_KEY = os.getenv(
     "ASI1_API_KEY",
-    "sk_1ec3981751ab4fa0a273c299cd310caba5de0931b5864893b03520a1f15ed02a"
+    "sk_a16bf299fdd8474ab776fcd044dcb3dfe68f3f89d37a447888d525c4562e9457"
 )
 ASI1_BASE_URL = "https://api.asi1.ai/v1"
 ASI1_MODEL = "asi1"
