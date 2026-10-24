@@ -1,22 +1,8 @@
 """
-ASI:One Desktop Operator Agent (Official Fetch.ai uAgent Specification)
-========================================================================
-Built in accordance with the official ASI:One documentation (https://asi1.ai)
-and Fetch.ai uAgents framework.
-
-Capabilities:
-- Fully Headless (NO FRONTEND)
-- Auto-generates public HTTPS Endpoint URL for uagents & Agentverse
-- Exposes ASI:One Agent Card (/.well-known/agent.json)
-- Full physical macOS & Windows desktop control:
-    * Applications (Google Chrome, VS Code, Notes, Calculator, Terminal)
-    * Web Browser visible automation (Playwright headful)
-    * Filesystem management (~/Desktop, ~/Documents)
-    * Mouse, Keyboard, and Screen Capture (PyAutoGUI)
-- ASI:One LLM Reasoning (https://api.asi1.ai/v1, model: asi1)
-
-Usage:
-    python run_agent.py
+AgentOS Desktop Automation Agent
+=================================
+Initialized with official Fetch.ai uAgents framework and ASI:One LLM reasoning.
+Full physical desktop access (Applications, Browser, Files, Mouse, Keyboard, Screen).
 """
 
 import os
@@ -24,20 +10,19 @@ import sys
 import time
 import asyncio
 import logging
-import subprocess
 from pathlib import Path
 from uuid import uuid4
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
-# Workspace and service paths
+# Add desktop service directory to path
 WORKSPACE_ROOT = Path(__file__).resolve().parent
 AGENTOS_DIR = WORKSPACE_ROOT / "agentos"
 DESKTOP_SERVICE_DIR = AGENTOS_DIR / "services" / "desktop-agent"
 
 sys.path.insert(0, str(DESKTOP_SERVICE_DIR))
 
-# Load .env
+# Load environment configuration (.env)
 def load_env():
     env_paths = [
         AGENTOS_DIR / ".env",
@@ -62,9 +47,9 @@ load_env()
 # Logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [ASI1-Agent]: %(message)s"
+    format="%(asctime)s [%(levelname)s] [AgentOS]: %(message)s"
 )
-logger = logging.getLogger("asi1.desktop_agent")
+logger = logging.getLogger("agentos.desktop_agent")
 
 # uAgents Imports
 from uagents import Agent, Context, Model
@@ -87,66 +72,17 @@ from app.executor.files import list_files, search_files, create_directory, read_
 from app.executor.browser import browser_manager
 from app.executor.terminal import run_approved_command
 
-# Configuration
-AGENT_NAME = os.getenv("AGENT_NAME", "ASI-One-Desktop-Operator")
-AGENT_PORT = int(os.getenv("AGENT_PORT", "8001"))
-AGENT_SEED = os.getenv("AGENT_SEED_PHRASE", "asi1-fetchai-desktop-operator-seed-2026")
-AGENT_MAILBOX_KEY = os.getenv("AGENT_MAILBOX_KEY", "").strip() or None
-
-
 # =============================================================================
-# Automatic Live Public HTTPS URL Generation (localtunnel / ngrok)
+# Agent Initialization (Configured exactly as requested)
 # =============================================================================
-def generate_public_tunnel_url(port: int) -> Optional[str]:
-    """Generates a live public HTTPS URL so other agents/Agentverse can connect."""
-    # Check if user specified explicit AGENT_ENDPOINT in .env
-    custom_endpoint = os.getenv("AGENT_ENDPOINT", "").strip()
-    if custom_endpoint and not custom_endpoint.startswith("http://127.0.0.1"):
-        return custom_endpoint.replace("/submit", "")
+agent = Agent(
+    name="agentos_desktop_agent",
+    port=8001,
+    endpoint=["http://127.0.0.1:8001/submit"],
+    mailbox=True,
+)
 
-    # Try localtunnel via npx
-    try:
-        proc = subprocess.Popen(
-            ["npx", "-y", "localtunnel", "--port", str(port)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        for _ in range(30):
-            line = proc.stdout.readline()
-            if "your url is:" in line:
-                url = line.split("your url is:")[1].strip()
-                logger.info(f"Generated Live Public Tunnel URL: {url}")
-                return url
-            time.sleep(0.2)
-    except Exception as e:
-        logger.warning(f"Could not auto-start localtunnel: {e}")
-
-    return None
-
-
-PUBLIC_BASE_URL = generate_public_tunnel_url(AGENT_PORT) or f"http://127.0.0.1:{AGENT_PORT}"
-AGENT_ENDPOINT = f"{PUBLIC_BASE_URL}/submit"
-
-# Initialize Fetch.ai Agent
-agent_kwargs = {
-    "name": AGENT_NAME,
-    "port": AGENT_PORT,
-    "seed": AGENT_SEED,
-    "endpoint": [AGENT_ENDPOINT],
-}
-
-if AGENT_MAILBOX_KEY:
-    if AGENT_MAILBOX_KEY.lower() in ("true", "1", "yes"):
-        agent_kwargs["mailbox"] = True
-    else:
-        mb_val = AGENT_MAILBOX_KEY if "@" in AGENT_MAILBOX_KEY else f"{AGENT_MAILBOX_KEY}@https://agentverse.ai"
-        agent_kwargs["mailbox"] = mb_val
-    agent_kwargs["publish_agent_details"] = True
-
-agent = Agent(**agent_kwargs)
-
-# Official Chat Protocol
+# Chat Protocol instance
 chat_proto = Protocol(
     name=chat_protocol_spec.name,
     version=chat_protocol_spec.version,
@@ -154,7 +90,7 @@ chat_proto = Protocol(
 
 
 # =============================================================================
-# REST Models (Per ASI:One & Fetch.ai Specification)
+# REST API Models
 # =============================================================================
 class TaskRequest(Model):
     prompt: str
@@ -173,7 +109,6 @@ class TaskResponse(Model):
 class StatusResponse(Model):
     agent_name: str
     agent_address: str
-    public_url: str
     endpoint_url: str
     operating_system: str
     architecture: str
@@ -186,11 +121,6 @@ class AgentSkill(Model):
     id: str
     name: str
     description: str
-
-
-class AgentProvider(Model):
-    organization: str
-    url: str
 
 
 class AgentCardResponse(Model):
@@ -207,7 +137,7 @@ class AgentCardResponse(Model):
 async def execute_step(step: TaskStepPlan) -> Dict[str, Any]:
     tool = step.tool
     args = step.arguments
-    logger.info(f"Running step {step.step_id}: {tool}({args})")
+    logger.info(f"Executing step {step.step_id}: {tool}({args})")
 
     if tool == "get_screen_info":
         return get_screen_info()
@@ -249,7 +179,7 @@ async def execute_step(step: TaskStepPlan) -> Dict[str, Any]:
 
 async def run_desktop_task(prompt: str) -> Dict[str, Any]:
     start_time = time.time()
-    logger.info(f"Reasoning task with ASI:One: '{prompt}'")
+    logger.info(f"Planning desktop task with Fetch.ai ASI:One: '{prompt}'")
     plan = create_task_plan(prompt)
 
     completed_steps = 0
@@ -288,7 +218,7 @@ async def run_desktop_task(prompt: str) -> Dict[str, Any]:
 
 
 # =============================================================================
-# Fetch.ai Chat Protocol Handlers
+# Chat Protocol Message Handlers
 # =============================================================================
 def extract_text_from_chat_msg(msg: ChatMessage) -> str:
     parts = []
@@ -320,17 +250,17 @@ async def handle_chat_message(ctx: Context, sender: str, msg: ChatMessage):
             ChatMessage(
                 msg_id=uuid4(),
                 timestamp=datetime.utcnow(),
-                content=[TextContent(text="Empty desktop instruction received."), EndSessionContent()]
+                content=[TextContent(text="Empty instruction received."), EndSessionContent()]
             )
         )
         return
 
-    # Step 3: Execute on laptop
+    # Step 3: Execute on real laptop
     result = await run_desktop_task(user_prompt)
 
     # Step 4: Return response
     icon = "✅" if result["status"] == "success" else "⚠️"
-    reply_text = f"{icon} **ASI:One Desktop Execution Report:**\n\n{result['summary']}"
+    reply_text = f"{icon} **AgentOS Desktop Execution Report:**\n\n{result['summary']}"
 
     await ctx.send(
         sender,
@@ -349,7 +279,7 @@ async def handle_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
 
 
 # =============================================================================
-# REST Endpoints
+# Direct REST Endpoints
 # =============================================================================
 @agent.on_rest_post("/api/task", TaskRequest, TaskResponse)
 async def handle_rest_task(ctx: Context, req: TaskRequest) -> TaskResponse:
@@ -373,10 +303,9 @@ async def handle_rest_status(ctx: Context) -> StatusResponse:
     os_info = get_detected_os()
     screen = get_screen_info()
     return StatusResponse(
-        agent_name=AGENT_NAME,
+        agent_name=agent.name,
         agent_address=agent.address,
-        public_url=PUBLIC_BASE_URL,
-        endpoint_url=AGENT_ENDPOINT,
+        endpoint_url="http://127.0.0.1:8001/submit",
         operating_system=os_info["os_name"],
         architecture=os_info["architecture"],
         screen_resolution=f"{screen.get('width', 0)}x{screen.get('height', 0)}",
@@ -387,14 +316,14 @@ async def handle_rest_status(ctx: Context) -> StatusResponse:
 
 @agent.on_rest_get("/.well-known/agent.json", AgentCardResponse)
 async def handle_agent_card(ctx: Context) -> AgentCardResponse:
-    """Official ASI:One Agent Card Discovery Endpoint (https://asi1.ai/.well-known/agent.json)."""
+    """Official ASI:One Agent Card Discovery Endpoint."""
     return AgentCardResponse(
-        name="ASI:One Desktop Operator",
-        description="Autonomous desktop operator powered by Fetch.ai ASI:One LLM. Controls native applications, web browser, mouse, keyboard, and files on macOS and Windows.",
-        url=PUBLIC_BASE_URL,
+        name="AgentOS Desktop Operator",
+        description="Autonomous desktop operator powered by Fetch.ai ASI:One LLM. Controls applications, browser, files, mouse, and keyboard on macOS and Windows.",
+        url="http://127.0.0.1:8001",
         version="1.0.0",
         skills=[
-            AgentSkill(id="desktop-applications", name="Application Management", description="Opens and coordinates desktop apps (Chrome, VS Code, Notes, Calculator, Terminal)."),
+            AgentSkill(id="desktop-applications", name="Application Management", description="Opens desktop apps (Chrome, VS Code, Notes, Calculator, Terminal)."),
             AgentSkill(id="browser-navigation", name="Visible Web Navigation", description="Visibly opens Chrome/Chromium and navigates to target URLs."),
             AgentSkill(id="filesystem-management", name="Filesystem Management", description="Creates directories and manages files in ~/Desktop and ~/Documents."),
             AgentSkill(id="mouse-keyboard", name="Physical Mouse & Keyboard", description="Clicks, moves cursor, types text, and presses keys via PyAutoGUI."),
@@ -404,36 +333,33 @@ async def handle_agent_card(ctx: Context) -> AgentCardResponse:
 
 
 # =============================================================================
-# Startup Banner & Info
+# Startup Banner
 # =============================================================================
 @agent.on_event("startup")
 async def on_startup(ctx: Context):
     os_info = get_detected_os()
     screen = get_screen_info()
 
-    inspector_url = f"https://agentverse.ai/inspect/?uri={PUBLIC_BASE_URL}&address={agent.address}"
+    inspector_url = f"https://agentverse.ai/inspect/?uri=http%3A//127.0.0.1%3A8001&address={agent.address}"
 
     print("\n" + "=" * 70)
-    print("🤖 ASI:One Desktop Operator Agent (NO FRONTEND)")
-    print("   Built with Fetch.ai uAgents & ASI:One LLM Reasoning")
+    print("🤖 AgentOS — Fetch.ai Desktop Automation Agent")
     print("=" * 70)
-    print(f"• Agent Name:            {AGENT_NAME}")
+    print(f"• Agent Name:            {agent.name}")
     print(f"• Agent Address:         {agent.address}")
-    print(f"• Generated Endpoint:    {AGENT_ENDPOINT}  <-- [GIVE THIS IN UAGENT]")
-    print(f"• Public Base URL:       {PUBLIC_BASE_URL}")
+    print(f"• Agent Endpoint URL:    http://127.0.0.1:8001/submit")
     print(f"• Agentverse Inspector:  {inspector_url}")
-    print(f"• ASI:One Agent Card:    {PUBLIC_BASE_URL}/.well-known/agent.json")
-    print(f"• Direct REST Task URL:  {PUBLIC_BASE_URL}/api/task")
-    print(f"• Status URL:            {PUBLIC_BASE_URL}/api/status")
+    print(f"• Direct REST Task URL:  http://127.0.0.1:8001/api/task")
+    print(f"• Status URL:            http://127.0.0.1:8001/api/status")
     print(f"• Operating System:      {os_info['os_name']} ({os_info['architecture']})")
     print(f"• Screen Canvas:         {screen.get('width')}x{screen.get('height')}")
     print(f"• ASI:One Model:         {settings.asi1_model} (Live API Active)")
     print("=" * 70)
-    print("📋 Copy & Paste this Endpoint into Agentverse / uAgents:")
-    print(f"   {AGENT_ENDPOINT}")
+    print("📋 uAgent me Endpoint URL dalein:")
+    print("   http://127.0.0.1:8001/submit")
     print("=" * 70)
-    print("💡 Or send a direct test task via curl:")
-    print(f'   curl -X POST {PUBLIC_BASE_URL}/api/task \\')
+    print("💡 Direct Test Command via curl:")
+    print('   curl -X POST http://127.0.0.1:8001/api/task \\')
     print('        -H "Content-Type: application/json" \\')
     print('        -d \'{"prompt": "Open Chrome and visit fetch.ai"}\'')
     print("=" * 70 + "\n")
